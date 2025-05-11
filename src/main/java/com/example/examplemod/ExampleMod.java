@@ -1,5 +1,23 @@
 package com.example.examplemod;
 
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.*;
+import com.mojang.math.Axis;
+import net.minecraft.client.Camera;
+
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.renderer.GameRenderer;
+
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.world.entity.Entity;
+
+import net.minecraft.world.entity.player.Player;
+
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
@@ -7,6 +25,7 @@ import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.food.FoodProperties;
 import net.minecraft.world.item.BlockItem;
@@ -17,14 +36,14 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
-import net.neoforged.api.distmarker.Dist;
+
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.common.EventBusSubscriber;
+
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
-import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
@@ -49,7 +68,7 @@ public class ExampleMod
     // Create a Deferred Register to hold CreativeModeTabs which will all be registered under the "examplemod" namespace
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
-    // Creates a new Block with the id "examplemod:example_block", combining the namespace and path
+    // Creates a new Block with tFhe id "examplemod:example_block", combining the namespace and path
     public static final DeferredBlock<Block> EXAMPLE_BLOCK = BLOCKS.registerSimpleBlock("example_block", BlockBehaviour.Properties.of().mapColor(MapColor.STONE));
     // Creates a new BlockItem with the id "examplemod:example_block", combining the namespace and path
     public static final DeferredItem<BlockItem> EXAMPLE_BLOCK_ITEM = ITEMS.registerSimpleBlockItem("example_block", EXAMPLE_BLOCK);
@@ -121,16 +140,135 @@ public class ExampleMod
         LOGGER.info("HELLO from server starting");
     }
 
-    // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
-    @EventBusSubscriber(modid = MODID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
-    public static class ClientModEvents
-    {
-        @SubscribeEvent
-        public static void onClientSetup(FMLClientSetupEvent event)
-        {
-            // Some client setup code
-            LOGGER.info("HELLO FROM CLIENT SETUP");
-            LOGGER.info("MINECRAFT NAME >> {}", Minecraft.getInstance().getUser().getName());
+    @SubscribeEvent
+    public void onRenderLevelStage(RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_ENTITIES) return;
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null || mc.isPaused()) return;
+
+        // Setup render states
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableDepthTest();
+        RenderSystem.disableCull();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        // Сохраняем текущую матрицу
+        PoseStack poseStack = event.getPoseStack();
+        Camera camera = event.getCamera();
+        Vec3 camPos = camera.getPosition();
+
+        Tesselator tesselator = Tesselator.getInstance();
+        BufferBuilder bufferBuilder = tesselator.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+
+        boolean hasData = false;
+
+        for (Entity entity : mc.level.entitiesForRendering()) {
+            if (entity == mc.player || !(entity instanceof Player)) continue;
+
+            AABB bb = entity.getBoundingBox()
+                    .inflate(0.05)  // Slightly expand for visibility
+                    .move(-camPos.x(), -camPos.y(), -camPos.z());
+
+            if (bb.isInfinite()) continue;  // Skip invalid boxes
+
+            drawFlagBox(bufferBuilder, bb);
+            hasData = true;
         }
+
+        if (hasData) {
+            BufferUploader.drawWithShader(bufferBuilder.build());
+        }
+
+        // Restore default render states
+        RenderSystem.enableDepthTest();
+        RenderSystem.enableCull();
+        RenderSystem.disableBlend();
+    }
+
+
+    private static void drawFlagBox(BufferBuilder bufferBuilder, AABB bb) {
+        double minX = bb.minX;
+        double minY = bb.minY;
+        double minZ = bb.minZ;
+        double maxX = bb.maxX;
+        double maxY = bb.maxY;
+        double maxZ = bb.maxZ;
+
+        // Вычисляем средние Y-значения для белой и синей зон
+        double mid1 = minY + (maxY - minY) * (1.0 / 3.0); // нижняя треть -> красный
+        double mid2 = minY + (maxY - minY) * (2.0 / 3.0); // средняя треть -> синий
+        // верхняя треть -> белый
+
+        // Белый верхний слой
+        addQuad(bufferBuilder, minX, mid2, minZ, maxX, mid2, minZ,
+                maxX, maxY, minZ, minX, maxY, minZ, 1.0f, 1.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid2, maxZ, maxX, mid2, maxZ,
+                maxX, maxY, maxZ, minX, maxY, maxZ, 1.0f, 1.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid2, minZ, minX, mid2, maxZ,
+                minX, maxY, maxZ, minX, maxY, minZ, 1.0f, 1.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, maxX, mid2, minZ, maxX, mid2, maxZ,
+                maxX, maxY, maxZ, maxX, maxY, minZ, 1.0f, 1.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid2, minZ, maxX, mid2, minZ,
+                maxX, mid2, maxZ, minX, mid2, maxZ, 1.0f, 1.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, maxY, maxZ, maxX, maxY, maxZ,
+                maxX, maxY, minZ, minX, maxY, minZ, 1.0f, 1.0f, 1.0f, 0.4f);
+
+        // Синий средний слой
+        addQuad(bufferBuilder, minX, mid1, minZ, maxX, mid1, minZ,
+                maxX, mid2, minZ, minX, mid2, minZ, 0.0f, 0.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid1, maxZ, maxX, mid1, maxZ,
+                maxX, mid2, maxZ, minX, mid2, maxZ, 0.0f, 0.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid1, minZ, minX, mid1, maxZ,
+                minX, mid2, maxZ, minX, mid2, minZ, 0.0f, 0.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, maxX, mid1, minZ, maxX, mid1, maxZ,
+                maxX, mid2, maxZ, maxX, mid2, minZ, 0.0f, 0.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid1, minZ, maxX, mid1, minZ,
+                maxX, mid1, maxZ, minX, mid1, maxZ, 0.0f, 0.0f, 1.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid2, maxZ, maxX, mid2, maxZ,
+                maxX, mid2, minZ, minX, mid2, minZ, 0.0f, 0.0f, 1.0f, 0.4f);
+
+        // Красный нижний слой
+        addQuad(bufferBuilder, minX, minY, minZ, maxX, minY, minZ,
+                maxX, mid1, minZ, minX, mid1, minZ, 1.0f, 0.0f, 0.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, minY, maxZ, maxX, minY, maxZ,
+                maxX, mid1, maxZ, minX, mid1, maxZ, 1.0f, 0.0f, 0.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, minY, minZ, minX, minY, maxZ,
+                minX, mid1, maxZ, minX, mid1, minZ, 1.0f, 0.0f, 0.0f, 0.4f);
+
+        addQuad(bufferBuilder, maxX, minY, minZ, maxX, minY, maxZ,
+                maxX, mid1, maxZ, maxX, mid1, minZ, 1.0f, 0.0f, 0.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, minY, minZ, maxX, minY, minZ,
+                maxX, minY, maxZ, minX, minY, maxZ, 1.0f, 0.0f, 0.0f, 0.4f);
+
+        addQuad(bufferBuilder, minX, mid1, maxZ, maxX, mid1, maxZ,
+                maxX, mid1, minZ, minX, mid1, minZ, 1.0f, 0.0f, 0.0f, 0.4f);
+    }
+
+    private static void addQuad(BufferBuilder bufferBuilder,
+                                double x1, double y1, double z1,
+                                double x2, double y2, double z2,
+                                double x3, double y3, double z3,
+                                double x4, double y4, double z4,
+                                float r, float g, float b, float a) {
+        bufferBuilder.addVertex((float)x1, (float)y1, (float)z1).setColor(r, g, b, a);
+        bufferBuilder.addVertex((float)x2, (float)y2, (float)z2).setColor(r, g, b, a);
+        bufferBuilder.addVertex((float)x3, (float)y3, (float)z3).setColor(r, g, b, a);
+        bufferBuilder.addVertex((float)x4, (float)y4, (float)z4).setColor(r, g, b, a);
     }
 }
+

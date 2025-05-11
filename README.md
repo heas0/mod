@@ -1,6 +1,6 @@
 
 Installation information
-=======
+========
 
 This template repository can be directly cloned to get you started with a new
 mod. Simply create a new repository cloned from this one, by following the
