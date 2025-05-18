@@ -3,9 +3,6 @@ plugins {
     id 'maven-publish'
     id 'net.neoforged.moddev' version '1.0.21'
 }
-
-
-
 tasks.named('wrapper', Wrapper).configure {
     // Define wrapper values here so as to not have to always do so when updating gradlew.properties.
     // Switching this to Wrapper.DistributionType.ALL will download the full gradle sources that comes with
@@ -20,7 +17,6 @@ group = mod_group_id
 
 repositories {
     mavenLocal()
-    flatDir { dirs 'libs' } // Для локальных JAR-файлов
 }
 
 base {
@@ -116,7 +112,7 @@ configurations {
 }
 
 dependencies {
-    implementation files("libs/baritone-api-neoforge-1.11.2.jar")
+    implementation files("src/libs/baritone-api-neoforge-1.11.2.jar")
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"
