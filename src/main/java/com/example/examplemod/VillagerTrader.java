@@ -126,6 +126,7 @@ public class VillagerTrader {
             currentVillager = villagerQueue.poll();
             if (currentVillager == null) {
                 currentState = State.SOLVER;
+                stopGoal();
                 return;
             } else {
                 setGoal(currentVillager);
@@ -145,6 +146,7 @@ public class VillagerTrader {
         if(!hasGoalAim) {
             if (currentVillager == null) {
                 currentState = State.SOLVER;
+                stopAiming();
                 return;
          }
             startAiming(currentVillager);
@@ -159,6 +161,9 @@ public class VillagerTrader {
     }
     private static void handleTradeToVillager() {
         Player player = minecraft.player;
+        if(player == null){
+            currentState= State.STOPED;
+        }
         if (currentVillager == null) {
             currentState = State.SOLVER;
             return;
