@@ -101,6 +101,8 @@ public class VillagerTrader {
 
     private static void handleStart() {
         currentVillagerProfession = VillagerProfession.MASON;
+        currentItem = Items.ROTTEN_FLESH;
+        currentMaxCost = 32;
         currentState = State.FINDING;
     }
     private static void handleFindVillagers() {
