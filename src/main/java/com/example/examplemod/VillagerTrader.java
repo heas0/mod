@@ -31,10 +31,10 @@ import org.slf4j.Logger;
 
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Queue;
 
 import static com.example.examplemod.BartioneHelper.*;
-import static com.example.examplemod.RenderHelper.addEntity;
 import static com.example.examplemod.RenderHelper.clearEntities;
 
 @EventBusSubscriber(modid = ExampleMod.MODID, bus = EventBusSubscriber.Bus.GAME, value = Dist.CLIENT)
@@ -59,6 +59,8 @@ public class VillagerTrader {
     private static final Minecraft minecraft = Minecraft.getInstance();
     private static State currentState = null;
     private static Villager currentVillager = null;
+    private static Item currentItem = null;
+    private static int currentMaxCost = 0;
     private static VillagerProfession currentVillagerProfession = null;
     private static Queue<Villager> villagerQueue = new LinkedList<>();
     private static final double radiusSearchVillager = 100;
@@ -108,8 +110,12 @@ public class VillagerTrader {
             currentState = State.SOLVER;
             return;
         }
-
-        List<Villager> villagers = level.getEntitiesOfClass(Villager.class, getSearchBox());
+        AABB searchBox =  getSearchBox();
+        if(searchBox == null) {
+            currentState = State.STOPED;
+               return;
+        }
+        List<Villager> villagers = level.getEntitiesOfClass(Villager.class, searchBox);
         List<Villager> filtered = villagers.stream()
                 .filter(v -> v.getVillagerData().getProfession() == currentVillagerProfession)
                 .toList();
@@ -119,7 +125,7 @@ public class VillagerTrader {
             return;
         } else {
             currentState = State.MOVING;
-            villagerQueue.forEach(villager -> addEntity(villager));
+            villagerQueue.forEach(RenderHelper::addEntity);
         }
     }
     private static void handleMoveToNextVillager() {
@@ -181,15 +187,15 @@ public class VillagerTrader {
              return;
         }
 
-        int cost = findCostItemToEmeraldTrade(merchantMenu, Items.CLAY_BALL);
-        if (cost > 10) {
+        int cost = findCostItemToEmeraldTrade(merchantMenu);
+        if (cost > currentMaxCost) {
             closeMerchantContainer(merchantMenu);
             currentState = State.SOLVER;
             return;
         }
-        int itemSlot = findItemInInventory(merchantMenu, Items.CLAY_BALL, 10);
+        int itemSlot = findItemInInventory(merchantMenu);
         if (itemSlot == -1) {
-            LOGGER.info("{} не найден в инвентаре, в количесте {}>!", Items.CLAY_BALL, 10);
+            LOGGER.info("{} не найден в инвентаре, в количесте {}>!", currentItem, currentMaxCost);
             closeMerchantContainer(merchantMenu);
             currentState = State.SOLVER;
             return;
@@ -222,6 +228,8 @@ public class VillagerTrader {
         villagerQueue.clear();
         currentVillager = null;
         currentVillagerProfession = null;
+        currentItem = null;
+        currentMaxCost = 0;
         hasGoalPath = false;
         hasGoalAim = false;
         isTrading = false;
@@ -233,12 +241,14 @@ public class VillagerTrader {
     }
     private static AABB getSearchBox() {
         Player player = minecraft.player;
+        if(player == null) {
+            return null;
+        }
         BlockPos playerPos = player.blockPosition();
-        AABB searchBox = new AABB(
+        return new AABB(
                 playerPos.getX() - radiusSearchVillager, playerPos.getY() - radiusSearchVillager, playerPos.getZ() - radiusSearchVillager,
                 playerPos.getX() + radiusSearchVillager, playerPos.getY() + radiusSearchVillager, playerPos.getZ() + radiusSearchVillager
         );
-        return searchBox;
     }
     private static boolean checkTradeCooldown() {
         if (timeToTrade < 10) {
@@ -263,24 +273,23 @@ public class VillagerTrader {
         }
         return merchantMenu;
     }
-    private static int findCostItemToEmeraldTrade(MerchantMenu merchantMenu, Item item) {
+    private static int findCostItemToEmeraldTrade(MerchantMenu merchantMenu) {
         MerchantOffers offers = merchantMenu.getOffers();
-        for (int i = 0; i < offers.size(); i++) {
-            MerchantOffer offer = offers.get(i);
+        for (MerchantOffer offer : offers) {
             if (offer.getResult().getItem() == Items.EMERALD &&
-                    offer.getCostA().getItem() == item) {
+                    offer.getCostA().getItem() == currentItem) {
                 return offer.getCostA().getCount();
             }
         }
         return -1;
     }
 
-    private static int findItemInInventory(MerchantMenu merchantMenu, Item item, int min_count) {
+    private static int findItemInInventory(MerchantMenu merchantMenu) {
         for (int i = 3; i < 39; i++) {
             Slot slot = merchantMenu.getSlot(i);
             if (!slot.getItem().isEmpty() &&
-                    slot.getItem().getItem() == item &&
-                    slot.getItem().getCount() >= min_count) {
+                    slot.getItem().getItem() == currentItem &&
+                    slot.getItem().getCount() >= currentMaxCost) {
                 return i;
             }
         }
@@ -294,7 +303,7 @@ public class VillagerTrader {
         ServerboundContainerClickPacket pickItem = new ServerboundContainerClickPacket(
                 containerId, stateId, itemSlot, 0, ClickType.PICKUP, ItemStack.EMPTY, Int2ObjectMaps.emptyMap()
         );
-        minecraft.getConnection().send(pickItem);
+        Objects.requireNonNull(minecraft.getConnection()).send(pickItem);
 
         // Кладём глину в слот оплаты
         ServerboundContainerClickPacket placeItem = new ServerboundContainerClickPacket(
@@ -309,11 +318,14 @@ public class VillagerTrader {
         ServerboundContainerClickPacket moveEmeralds = new ServerboundContainerClickPacket(
                 containerId, stateId, 2, 0, ClickType.QUICK_MOVE, ItemStack.EMPTY, Int2ObjectMaps.emptyMap()
         );
-        minecraft.getConnection().send(moveEmeralds);
+        Objects.requireNonNull(minecraft.getConnection()).send(moveEmeralds);
     }
     private static void closeMerchantContainer(MerchantMenu merchantMenu) {
         ServerboundContainerClosePacket closePacket = new ServerboundContainerClosePacket(merchantMenu.containerId);
-        minecraft.getConnection().send(closePacket);
+        Objects.requireNonNull(minecraft.getConnection()).send(closePacket);
+        if(minecraft.player == null){
+            return;
+        }
         minecraft.player.closeContainer();
     }
 }
